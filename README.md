@@ -2,7 +2,7 @@
 
 > **CineTube** is a sleek, Netflix-inspired web application designed to curate, organize, and stream feature-length movies from YouTube playlists. Powered by **Google Gemini AI** for automatic metadata enrichment, it features personal watchlists, full admin controls, real-time Firebase syncing, and tablet-optimized display management.
 
----
+<img width="1730" height="1002" alt="cinetube" src="https://github.com/user-attachments/assets/1f0c62cb-5883-4bca-a54f-538a3f2d92f8" />
 
 ## ✨ Key Features
 
