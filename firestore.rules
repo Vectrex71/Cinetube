@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: hiddenVideos
+    // Document ID: {videoId}
+    // Fields:
+    //   - videoId: string (required) - The YouTube video ID.
+    //   - hiddenBy: string (required) - The email of the admin who hid the video.
+    //   - hiddenAt: timestamp (required) - When the video was hidden.
+    //
+    // Collection: deletedVideos
+    // Document ID: {videoId}
+    // Fields:
+    //   - videoId: string (required) - The YouTube video ID.
+    //   - deletedBy: string (required) - The email of the admin who deleted the video.
+    //   - deletedAt: timestamp (required) - When the video was deleted.
+    //
+    // Collection: users/{userId}/myList
+    // Document ID: {videoId}
+    // Fields:
+    //   - videoId: string (required) - The YouTube video ID.
+    //   - userId: string (required) - The ID of the user who added the video.
+    //   - addedAt: timestamp (required) - When the video was added to the list.
+    //
+    // Collection: videoStats
+    // Document ID: {videoId}
+    // Fields:
+    //   - videoId: string (required) - The YouTube video ID.
+    //   - viewCount: number (required) - The number of times the video has been played.
+    //   - lastViewedAt: timestamp (optional) - When the video was last viewed.
+    //
+    // Collection: recommendedVideos
+    // Document ID: {videoId}
+    // Fields:
+    //   - videoId: string (required) - The YouTube video ID.
+    //   - addedBy: string (required) - The email of the admin who added the recommendation.
+    //   - addedAt: timestamp (required) - When the video was added.
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (request.auth.token.email == "hj.wuethrich@gmail.com");
+    }
+
+    function isRecent(time) {
+      return time > request.time - duration.value(5, 'm') && time < request.time + duration.value(5, 'm');
+    }
+
+    function isValidHiddenVideo(data) {
+      return data.keys().hasAll(['videoId', 'hiddenBy', 'hiddenAt']) &&
+             data.keys().hasOnly(['videoId', 'hiddenBy', 'hiddenAt']) &&
+             data.videoId is string && data.videoId.size() > 0 &&
+             data.hiddenBy is string && data.hiddenBy == request.auth.token.email &&
+             data.hiddenAt is timestamp;
+    }
+
+    function isValidDeletedVideo(data) {
+      return data.keys().hasAll(['videoId', 'deletedBy', 'deletedAt']) &&
+             data.keys().hasOnly(['videoId', 'deletedBy', 'deletedAt']) &&
+             data.videoId is string && data.videoId.size() > 0 &&
+             data.deletedBy is string && data.deletedBy == request.auth.token.email &&
+             data.deletedAt is timestamp;
+    }
+
+    function isValidRecommendation(data) {
+      return data.keys().hasAll(['videoId', 'addedBy', 'addedAt']) &&
+             data.keys().hasOnly(['videoId', 'addedBy', 'addedAt']) &&
+             data.videoId is string && data.videoId.size() > 0 &&
+             data.addedBy is string && data.addedBy == request.auth.token.email &&
+             data.addedAt is timestamp;
+    }
+
+    function isValidMovieDetail(data) {
+      return data.videoId is string && data.videoId.size() > 0 &&
+             data.title is string &&
+             data.overview is string;
+    }
+
+    function isValidMyList(data, userId) {
+      return data.keys().hasAll(['videoId', 'userId', 'addedAt']) &&
+             data.keys().hasOnly(['videoId', 'userId', 'addedAt']) &&
+             data.videoId is string && data.videoId.size() > 0 &&
+             data.userId is string && data.userId == userId &&
+             data.addedAt is timestamp;
+    }
+
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

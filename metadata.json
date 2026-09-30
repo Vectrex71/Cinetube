@@ -1,0 +1,5 @@
+{
+  "name": "CineTube",
+  "description": "Ein privater, Netflix-inspirierter YouTube-Player für kuratierte Filmlisten mit eigener Watchlist und wöchentlichen Highlights.",
+  "requestFramePermissions": []
+}
