@@ -10,4 +10,7 @@ export interface YouTubeVideo {
 export interface PlaylistResponse {
   items: YouTubeVideo[];
   nextPageToken?: string;
+  fromCache?: boolean;
+  quotaExceeded?: boolean;
+  warning?: string;
 }

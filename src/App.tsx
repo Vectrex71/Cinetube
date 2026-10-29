@@ -7,7 +7,7 @@ import { PlayerModal } from './components/PlayerModal';
 import { MovieInfoModal } from './components/MovieInfoModal';
 import { LoginWall } from './components/LoginWall';
 import { Search, Bell, User, Loader2, AlertCircle, LogIn, LogOut, EyeOff, Trash2, RotateCcw, Plus, Bookmark, Info, Trophy, RefreshCw, Maximize, Minimize } from 'lucide-react';
-import { cn } from './lib/utils';
+import { cn, cleanTitle } from './lib/utils';
 import { getAuthInstance, getDbInstance, signIn, logOut, collection, onSnapshot, query, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, orderBy, limit, getDoc, handleFirestoreError, OperationType } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { fetchMovieInfo } from './services/movieInfo';
@@ -28,6 +28,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [quotaWarning, setQuotaWarning] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
   const [infoVideo, setInfoVideo] = useState<YouTubeVideo | null>(null);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -40,7 +41,7 @@ export default function App() {
   const [allMovieDetails, setAllMovieDetails] = useState<Map<string, any>>(new Map());
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [view, setView] = useState<'home' | 'all-movies' | 'trash' | 'my-list' | 'difference'>('home');
-  const [sortBy, setSortBy] = useState<'added' | 'alphabetical'>('added');
+  const [sortBy, setSortBy] = useState<'added' | 'alphabetical'>('alphabetical');
   const [recommendedVideos, setRecommendedVideos] = useState<YouTubeVideo[]>([]);
   const [recommendedIds, setRecommendedIds] = useState<Set<string>>(new Set());
   const [isDbLoaded, setIsDbLoaded] = useState({
@@ -118,9 +119,33 @@ export default function App() {
     return [...filtered].sort(() => 0.5 - Math.random());
   }, [videos, recommendedIds, hiddenIds, deletedIds]);
 
+  // Helper to obtain the best movie title: database title first, then cleaned title, then raw title
+  const getMovieTitle = (video: YouTubeVideo): string => {
+    const details = allMovieDetails.get(video.videoId);
+    if (details?.title && typeof details.title === 'string') {
+      const trimmed = details.title.trim();
+      if (trimmed.length > 0 && trimmed.toLowerCase() !== 'n/a') {
+        return trimmed;
+      }
+    }
+    return cleanTitle(video.title) || video.title;
+  };
+
+  // Helper to get a clean sort key (stripping leading non-alphanumeric chars like quotes or brackets)
+  const getMovieSortKey = (video: YouTubeVideo): string => {
+    const title = getMovieTitle(video);
+    return title.replace(/^[^a-zA-Z0-9äöüÄÖÜß]+/, '').trim();
+  };
+
+  const compareMoviesAlphabetically = (a: YouTubeVideo, b: YouTubeVideo) => {
+    const sortA = getMovieSortKey(a);
+    const sortB = getMovieSortKey(b);
+    return sortA.localeCompare(sortB, 'de', { sensitivity: 'base', numeric: true });
+  };
+
   const alphabeticalVideos = useMemo(() => {
-    return [...visibleVideos].sort((a, b) => a.title.localeCompare(b.title));
-  }, [visibleVideos]);
+    return [...visibleVideos].sort(compareMoviesAlphabetically);
+  }, [visibleVideos, allMovieDetails]);
 
   const filteredVideos = useMemo(() => {
     const queryStr = searchQuery.trim().toLowerCase();
@@ -179,14 +204,14 @@ export default function App() {
       });
     }
 
-    // Apply sorting
+    // Apply sorting (by database film title if alphabetical)
     if (sortBy === 'alphabetical') {
-      result.sort((a, b) => a.title.localeCompare(b.title));
+      result.sort(compareMoviesAlphabetically);
     }
     // 'added' is the default order from the source array
 
     return result;
-  }, [visibleVideos, trashVideos, searchQuery, selectedGenre, allMovieDetails, view, sortBy]);
+  }, [visibleVideos, trashVideos, myListVideos, searchQuery, selectedGenre, allMovieDetails, view, sortBy]);
 
   useEffect(() => {
     if (visibleVideos.length > 0 && featuredVideos.length === 0) {
@@ -197,16 +222,8 @@ export default function App() {
     }
   }, [visibleVideos, featuredVideos.length]);
 
-  // Auto-rotate hero every 10 seconds
-  useEffect(() => {
-    if (featuredVideos.length <= 1) return;
-
-    const interval = setInterval(() => {
-      setHeroIndex((prev) => (prev + 1) % featuredVideos.length);
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [featuredVideos]);
+  // Hero rotation is now handled smoothly inside the Hero CoverFlow component
+  // (with hover-pause, swipe, 3D animations and direct card selection)
 
   // Sync featured and recommended videos with visibility changes (remove hidden/deleted)
   useEffect(() => {
@@ -400,6 +417,11 @@ export default function App() {
       setLoading(true);
       const data = await fetchPlaylistItems(PLAYLIST_ID, forceRefresh);
       setVideos(data.items);
+      if (data.warning) {
+        setQuotaWarning(data.warning);
+      } else {
+        setQuotaWarning(null);
+      }
       setError(null);
     } catch (err: any) {
       console.error(err);
@@ -866,6 +888,23 @@ export default function App() {
       )}
 
       <main className="pb-24 relative z-0">
+        {isAdmin && quotaWarning && (
+          <div className="mx-4 md:mx-12 pt-20 pb-2">
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-between text-amber-200 text-xs sm:text-sm">
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-amber-400">ℹ️ Info:</span>
+                <span>{quotaWarning} ({videos.length} Filme aktiv)</span>
+              </div>
+              <button 
+                onClick={() => setQuotaWarning(null)} 
+                className="text-amber-400 hover:text-white px-2 py-0.5"
+                title="Schließen"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
         {view === 'difference' ? (
           <div className="pt-24 md:pt-32 px-4 md:px-12">
             <DifferenceView 
@@ -929,16 +968,16 @@ export default function App() {
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Sortieren:</span>
                   <div className="flex space-x-2">
                     <button 
-                      onClick={() => setSortBy('added')}
-                      className={`text-sm px-2 py-0.5 rounded transition ${sortBy === 'added' ? 'bg-white text-black font-bold' : 'text-gray-300 hover:text-white'}`}
-                    >
-                      Hinzugefügt
-                    </button>
-                    <button 
                       onClick={() => setSortBy('alphabetical')}
                       className={`text-sm px-2 py-0.5 rounded transition ${sortBy === 'alphabetical' ? 'bg-white text-black font-bold' : 'text-gray-300 hover:text-white'}`}
                     >
                       A-Z
+                    </button>
+                    <button 
+                      onClick={() => setSortBy('added')}
+                      className={`text-sm px-2 py-0.5 rounded transition ${sortBy === 'added' ? 'bg-white text-black font-bold' : 'text-gray-300 hover:text-white'}`}
+                    >
+                      Hinzugefügt
                     </button>
                   </div>
                 </div>
@@ -946,7 +985,9 @@ export default function App() {
             </div>
             {filteredVideos.length > 0 ? (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                {filteredVideos.map((video) => (
+                {filteredVideos.map((video) => {
+                  const displayTitle = getMovieTitle(video);
+                  return (
                     <div
                       key={video.id}
                       onClick={() => {
@@ -954,13 +995,21 @@ export default function App() {
                         handleVideoPlay(video);
                       }}
                       className="group relative isolate aspect-video cursor-pointer transition-transform duration-200 ease-out md:hover:scale-105 hover:z-20 z-0"
+                      title={displayTitle}
                     >
-                      <div className="relative h-full w-full overflow-hidden rounded-md shadow-md">
+                      <div className="relative h-full w-full overflow-hidden rounded-md shadow-md bg-zinc-900">
                         <Thumbnail
                           videoSrc={video.thumbnail}
-                          alt={video.title}
+                          alt={displayTitle}
                           loading="lazy"
                         />
+
+                        {/* Film Title Caption Bar */}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-1.5 sm:p-2 pt-5 pointer-events-none">
+                          <p className="text-[10px] sm:text-xs font-semibold text-white truncate pr-16 drop-shadow-md">
+                            {displayTitle}
+                          </p>
+                        </div>
                         
                         {/* Action Buttons Overlay */}
                         <div className="absolute right-1.5 bottom-1.5 sm:right-2 sm:bottom-2 z-10 flex space-x-1.5 sm:space-x-2">
@@ -1042,7 +1091,8 @@ export default function App() {
                         )}
                       </div>
                     </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-20 text-gray-500">
@@ -1067,9 +1117,11 @@ export default function App() {
           </div>
         ) : (
           <>
-            {featuredMovie && (
+            {(featuredVideos.length > 0 || visibleVideos.length > 0) && (
               <Hero 
-                video={featuredMovie} 
+                videos={featuredVideos.length > 0 ? featuredVideos : visibleVideos.slice(0, 10)}
+                video={featuredMovie}
+                allMovieDetails={allMovieDetails}
                 onPlay={(v) => {
                   setSelectedVideo(v);
                   handleVideoPlay(v);
@@ -1078,7 +1130,7 @@ export default function App() {
               />
             )}
 
-            <div className="mt-8 md:mt-12 relative z-20 pb-8">
+            <div className="mt-1 md:mt-3 relative z-20 pb-8">
               <div ref={newReleasesRef}>
                 <MovieRow 
                   title="Neuerscheinungen" 
@@ -1094,6 +1146,7 @@ export default function App() {
                   onToggleMyList={handleToggleMyList}
                   recommendedIds={recommendedIds}
                   onToggleRecommendation={handleToggleRecommendation}
+                  allMovieDetails={allMovieDetails}
                 />
               </div>
 
@@ -1112,6 +1165,7 @@ export default function App() {
                   onToggleMyList={handleToggleMyList}
                   recommendedIds={recommendedIds}
                   onToggleRecommendation={handleToggleRecommendation}
+                  allMovieDetails={allMovieDetails}
                 />
               )}
 
@@ -1129,6 +1183,7 @@ export default function App() {
                 onToggleMyList={handleToggleMyList}
                 recommendedIds={recommendedIds}
                 onToggleRecommendation={handleToggleRecommendation}
+                allMovieDetails={allMovieDetails}
               />
 
               <div ref={popularRef}>
@@ -1146,6 +1201,7 @@ export default function App() {
                   onToggleMyList={handleToggleMyList}
                   recommendedIds={recommendedIds}
                   onToggleRecommendation={handleToggleRecommendation}
+                  allMovieDetails={allMovieDetails}
                 />
               </div>
 
@@ -1164,6 +1220,7 @@ export default function App() {
                 onToggleMyList={handleToggleMyList}
                 recommendedIds={recommendedIds}
                 onToggleRecommendation={handleToggleRecommendation}
+                allMovieDetails={allMovieDetails}
               />
 
               {myListVideos.length > 0 && (
@@ -1182,6 +1239,7 @@ export default function App() {
                   onToggleMyList={handleToggleMyList}
                   recommendedIds={recommendedIds}
                   onToggleRecommendation={handleToggleRecommendation}
+                  allMovieDetails={allMovieDetails}
                 />
               )}
             </div>

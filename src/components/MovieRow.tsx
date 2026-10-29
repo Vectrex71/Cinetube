@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { YouTubeVideo } from '../types';
 import { ChevronLeft, ChevronRight, EyeOff, Plus, Bookmark, Info, Trophy } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, cleanTitle } from '../lib/utils';
 import { Thumbnail } from './Thumbnail';
 
 interface MovieRowProps {
@@ -16,6 +16,7 @@ interface MovieRowProps {
   onToggleMyList?: (videoId: string) => void;
   recommendedIds?: Set<string>;
   onToggleRecommendation?: (videoId: string) => void;
+  allMovieDetails?: Map<string, any>;
 }
 
 export const MovieRow: React.FC<MovieRowProps> = ({ 
@@ -29,7 +30,8 @@ export const MovieRow: React.FC<MovieRowProps> = ({
   myListIds, 
   onToggleMyList,
   recommendedIds,
-  onToggleRecommendation
+  onToggleRecommendation,
+  allMovieDetails
 }) => {
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -69,21 +71,32 @@ export const MovieRow: React.FC<MovieRowProps> = ({
           ref={rowRef}
           className="no-scrollbar flex items-center space-x-2 md:space-x-2.5 overflow-x-scroll scrollbar-hide scroll-smooth"
         >
-          {videos.map((video) => (
-            <div
-              key={video.id}
-              onClick={() => onSelect(video)}
-              className="group relative isolate h-28 min-w-[180px] md:h-36 md:min-w-[260px] cursor-pointer transition-transform duration-200 ease-out md:hover:scale-105 hover:z-20 z-0"
-            >
-              <div className="relative h-full w-full overflow-hidden rounded-md shadow-md">
-                <Thumbnail
-                  videoSrc={video.thumbnail}
-                  alt={video.title}
-                  loading="lazy"
-                />
-                
-                {/* Action Buttons Overlay */}
-                <div className="absolute right-1.5 bottom-1.5 md:right-2 md:bottom-2 z-10 flex space-x-1.5 md:space-x-2">
+          {videos.map((video) => {
+            const dbTitle = allMovieDetails?.get(video.videoId)?.title;
+            const displayTitle = (dbTitle && dbTitle.trim() && dbTitle !== 'N/A') ? dbTitle.trim() : (cleanTitle(video.title) || video.title);
+            return (
+              <div
+                key={video.id}
+                onClick={() => onSelect(video)}
+                className="group relative isolate h-28 min-w-[180px] md:h-36 md:min-w-[260px] cursor-pointer transition-transform duration-200 ease-out md:hover:scale-105 hover:z-20 z-0"
+                title={displayTitle}
+              >
+                <div className="relative h-full w-full overflow-hidden rounded-md shadow-md bg-zinc-900">
+                  <Thumbnail
+                    videoSrc={video.thumbnail}
+                    alt={displayTitle}
+                    loading="lazy"
+                  />
+
+                  {/* Film Title Caption Bar */}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-1.5 sm:p-2 pt-5 pointer-events-none">
+                    <p className="text-[10px] md:text-xs font-semibold text-white truncate pr-16 drop-shadow-md">
+                      {displayTitle}
+                    </p>
+                  </div>
+                  
+                  {/* Action Buttons Overlay */}
+                  <div className="absolute right-1.5 bottom-1.5 md:right-2 md:bottom-2 z-10 flex space-x-1.5 md:space-x-2">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -138,7 +151,8 @@ export const MovieRow: React.FC<MovieRowProps> = ({
                 )}
               </div>
             </div>
-          ))}
+          );
+        })}
         </div>
 
         <button

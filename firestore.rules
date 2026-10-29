@@ -97,8 +97,51 @@ service cloud.firestore {
              data.addedAt is timestamp;
     }
 
+    // Hidden videos: readable by all, writeable only by admin
+    match /hiddenVideos/{videoId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Deleted videos: readable by all, writeable only by admin
+    match /deletedVideos/{videoId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Recommended videos: readable by all, writeable only by admin
+    match /recommendedVideos/{videoId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Movie details: readable by all, writable by authenticated users, deletable only by admin
+    match /movieDetails/{videoId} {
+      allow read: if true;
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // User's private watchlist: only readable and writeable by the document owner
+    match /users/{userId}/myList/{videoId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Video view stats: readable by all, updateable by authenticated users
+    match /videoStats/{videoId} {
+      allow read: if true;
+      allow create, update: if isAuthenticated();
+    }
+
+    // Connection test document
+    match /test/connection {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Deny all other access by default
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }
