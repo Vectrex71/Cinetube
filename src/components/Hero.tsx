@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { YouTubeVideo } from '../types';
 import { Play, Info, ChevronLeft, ChevronRight, Star, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cleanTitle } from '../lib/utils';
+import { cleanTitle, getValidMovieTitle, normalizeGenre, isExcludedGenre } from '../lib/utils';
 import { Thumbnail } from './Thumbnail';
 
 interface HeroProps {
@@ -110,18 +110,18 @@ export const Hero: React.FC<HeroProps> = ({
 
   const displayTitle = useMemo(() => {
     if (!activeVideo) return '';
-    if (activeDetails?.title && typeof activeDetails.title === 'string') {
-      const trimmed = activeDetails.title.trim();
-      if (trimmed.length > 0 && trimmed.toLowerCase() !== 'n/a') {
-        return trimmed;
-      }
-    }
-    return cleanTitle(activeVideo.title) || activeVideo.title;
+    return getValidMovieTitle(activeDetails?.title, activeVideo.title);
   }, [activeVideo, activeDetails]);
 
   const genresText = useMemo(() => {
     if (activeDetails?.genres && Array.isArray(activeDetails.genres)) {
-      return activeDetails.genres.filter((g: string) => g && g !== 'N/A').slice(0, 3).join(' • ');
+      const valid = Array.from(new Set(
+        activeDetails.genres
+          .filter((g: string) => g && g !== 'N/A')
+          .map((g: string) => normalizeGenre(g))
+          .filter((g: string) => !isExcludedGenre(g))
+      ));
+      return valid.slice(0, 3).join(' • ');
     }
     return null;
   }, [activeDetails]);
@@ -130,7 +130,7 @@ export const Hero: React.FC<HeroProps> = ({
 
   return (
     <div 
-      className="relative h-[48vh] sm:h-[52vh] md:h-[56vh] min-h-[410px] md:min-h-[440px] max-h-[560px] w-full overflow-hidden bg-netflix-black select-none flex flex-col justify-between pt-20 md:pt-24 pb-2 sm:pb-3"
+      className="relative h-[46vh] sm:h-[49vh] md:h-[52vh] min-h-[410px] sm:min-h-[440px] md:min-h-[470px] max-h-[540px] w-full overflow-hidden bg-netflix-black select-none flex flex-col justify-between pt-20 sm:pt-24 md:pt-28 pb-3 sm:pb-4"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onTouchStart={handleTouchStart}
@@ -160,7 +160,7 @@ export const Hero: React.FC<HeroProps> = ({
 
         {/* Ambient gradients to blend seamlessly into Netflix UI */}
         <div className="absolute inset-x-0 top-0 h-28 md:h-36 bg-gradient-to-b from-netflix-black via-netflix-black/60 to-transparent z-10" />
-        <div className="absolute inset-x-0 bottom-0 h-36 md:h-48 bg-gradient-to-t from-netflix-black via-netflix-black/85 to-transparent z-10" />
+        <div className="absolute inset-x-0 bottom-0 h-32 md:h-44 bg-gradient-to-t from-netflix-black via-netflix-black/85 to-transparent z-10" />
         <div className="absolute inset-0 bg-radial-[circle_at_center,_transparent_30%,_rgba(0,0,0,0.6)_100%] z-10" />
       </div>
 
@@ -171,7 +171,7 @@ export const Hero: React.FC<HeroProps> = ({
           <button
             onClick={handlePrev}
             aria-label="Vorheriger Film"
-            className="absolute left-2 sm:left-4 md:left-8 z-40 p-2 sm:p-2.5 rounded-full bg-black/60 hover:bg-black/90 text-white/80 hover:text-white backdrop-blur-md border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-2xl focus:outline-none"
+            className="absolute left-2 sm:left-4 md:left-8 z-40 p-2 sm:p-2.5 rounded-full bg-black/60 hover:bg-black/90 text-white/80 hover:text-white backdrop-blur-md border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-2xl focus:outline-none cursor-pointer"
           >
             <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
@@ -179,7 +179,7 @@ export const Hero: React.FC<HeroProps> = ({
 
         {/* 3D CoverFlow Stage */}
         <div 
-          className="relative w-full h-[180px] sm:h-[220px] md:h-[260px] lg:h-[285px] flex items-center justify-center"
+          className="relative w-full h-[160px] sm:h-[195px] md:h-[230px] lg:h-[250px] flex items-center justify-center"
           style={{ perspective: '1100px', transformStyle: 'preserve-3d' }}
         >
           {playlist.map((item, index) => {
@@ -196,11 +196,13 @@ export const Hero: React.FC<HeroProps> = ({
 
             // Responsive offset calculations
             const rotationY = diff === 0 ? 0 : diff > 0 ? -36 - (diff - 1) * 8 : 36 - (diff + 1) * 8;
-            const scale = diff === 0 ? 1 : Math.max(0.65, 0.86 - Math.abs(diff) * 0.12);
-            const translatePercent = diff * 58; // percentage spacing
-            const translateZ = diff === 0 ? 80 : -40 - Math.abs(diff) * 60;
-            const zIndex = 30 - Math.abs(diff) * 5;
-            const opacity = diff === 0 ? 1 : Math.max(0.2, 0.7 - (Math.abs(diff) - 1) * 0.35);
+            // Active center card is larger (scale 1.1) and pulled slightly down (translateY 14px)
+            const scale = diff === 0 ? 1.1 : Math.max(0.60, 0.78 - Math.abs(diff) * 0.1);
+            const translateY = diff === 0 ? 14 : 0;
+            const translatePercent = diff * 56; // percentage spacing
+            const translateZ = diff === 0 ? 90 : -45 - Math.abs(diff) * 60;
+            const zIndex = isCenter ? 35 : 28 - Math.abs(diff) * 5;
+            const opacity = diff === 0 ? 1 : Math.max(0.2, 0.65 - (Math.abs(diff) - 1) * 0.3);
 
             return (
               <div
@@ -213,17 +215,21 @@ export const Hero: React.FC<HeroProps> = ({
                   }
                 }}
                 className={`absolute transition-all duration-500 ease-out cursor-pointer origin-center ${
-                  isCenter ? 'cursor-pointer hover:scale-[1.02]' : 'cursor-pointer hover:opacity-100'
+                  isCenter ? 'hover:scale-[1.12]' : 'hover:opacity-100'
                 }`}
                 style={{
-                  transform: `translateX(${translatePercent}%) translateZ(${translateZ}px) rotateY(${rotationY}deg) scale(${scale})`,
+                  transform: `translateX(${translatePercent}%) translateY(${translateY}px) translateZ(${translateZ}px) rotateY(${rotationY}deg) scale(${scale})`,
                   zIndex,
                   opacity,
                   transformStyle: 'preserve-3d',
                 }}
               >
                 {/* 16:9 Card with crisp, unclipped thumbnail */}
-                <div className="relative w-[240px] sm:w-[320px] md:w-[390px] lg:w-[440px] xl:w-[460px] aspect-video rounded-xl overflow-hidden bg-zinc-950 shadow-[0_15px_40px_rgba(0,0,0,0.85)] ring-1 ring-white/15 group">
+                <div className={`relative w-[210px] sm:w-[275px] md:w-[345px] lg:w-[395px] xl:w-[425px] aspect-video rounded-2xl overflow-hidden bg-zinc-950 transition-all duration-500 ${
+                  isCenter 
+                    ? 'ring-2 ring-white/30 shadow-[0_25px_60px_rgba(0,0,0,0.95),_0_0_30px_rgba(255,255,255,0.08)]' 
+                    : 'ring-1 ring-white/15 shadow-[0_15px_40px_rgba(0,0,0,0.85)]'
+                } group`}>
                   <Thumbnail
                     videoSrc={item.thumbnail}
                     alt={item.title}
@@ -231,22 +237,24 @@ export const Hero: React.FC<HeroProps> = ({
                     className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                   />
 
-                  {/* Play Overlay Icon on hover or on active card */}
+                  {/* Play Overlay Icon on hover on active card */}
                   {isCenter && (
                     <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-netflix-red/90 text-white flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform">
+                      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-netflix-red/90 text-white flex items-center justify-center shadow-2xl transform scale-90 group-hover:scale-100 transition-transform">
                         <Play className="fill-current w-5 h-5 sm:w-6 sm:h-6 ml-0.5" />
                       </div>
                     </div>
                   )}
 
                   {/* Subtle inner top highlight */}
-                  <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+                  <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent" />
                 </div>
 
                 {/* CoverFlow Mirror Reflection Underneath */}
                 <div 
-                  className="pointer-events-none absolute -bottom-[32%] left-0 right-0 h-[28%] overflow-hidden opacity-25 [transform:scaleY(-1)] blur-[0.5px]"
+                  className={`pointer-events-none absolute -bottom-[32%] left-0 right-0 h-[28%] overflow-hidden ${
+                    isCenter ? 'opacity-15' : 'opacity-25'
+                  } [transform:scaleY(-1)] blur-[0.5px]`}
                   style={{
                     WebkitMaskImage: 'linear-gradient(to top, transparent 15%, rgba(0,0,0,0.8) 100%)',
                     maskImage: 'linear-gradient(to top, transparent 15%, rgba(0,0,0,0.8) 100%)'
@@ -269,89 +277,95 @@ export const Hero: React.FC<HeroProps> = ({
           <button
             onClick={handleNext}
             aria-label="Nächster Film"
-            className="absolute right-2 sm:right-4 md:right-8 z-40 p-2 sm:p-2.5 rounded-full bg-black/60 hover:bg-black/90 text-white/80 hover:text-white backdrop-blur-md border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-2xl focus:outline-none"
+            className="absolute right-2 sm:right-4 md:right-8 z-40 p-2 sm:p-2.5 rounded-full bg-black/60 hover:bg-black/90 text-white/80 hover:text-white backdrop-blur-md border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-2xl focus:outline-none cursor-pointer"
           >
             <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         )}
       </div>
 
-      {/* 3. ACTIVE MOVIE INFO & ACTION BUTTONS */}
-      <div className="relative z-30 flex flex-col items-center text-center px-4 md:px-12 max-w-4xl mx-auto space-y-1.5 sm:space-y-2">
-        {/* Title */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeVideo.videoId || activeVideo.id}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.25 }}
-            className="flex flex-col items-center"
-          >
-            <h2 className="text-lg sm:text-xl md:text-2xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] max-w-2xl line-clamp-1">
-              {displayTitle}
-            </h2>
+      {/* 3. HERO CONTROLS & MOVIE TITLE (No frosted glass bar, title on far right & larger, buttons on left) */}
+      <div className="relative z-35 w-full px-4 sm:px-8 md:px-12 pt-2 pb-2 sm:pb-3">
+        <div className="w-full flex items-end justify-between gap-4 sm:gap-8">
+          {/* Left Side: Action Buttons & Carousel Dots */}
+          <div className="flex items-center space-x-2.5 sm:space-x-3.5 shrink-0 pb-1">
+            <button
+              onClick={() => onPlay(activeVideo)}
+              className="flex items-center space-x-1.5 sm:space-x-2 rounded-lg bg-white px-4 sm:px-6 py-2 text-black font-extrabold text-xs sm:text-sm transition-all hover:bg-white/90 hover:scale-105 active:scale-95 shadow-[0_4px_20px_rgba(0,0,0,0.8)] cursor-pointer shrink-0"
+            >
+              <Play className="fill-current w-3.5 h-3.5 sm:w-4 sm:h-4 text-black" />
+              <span>Abspielen</span>
+            </button>
 
-            {/* Badges / Metadata row */}
-            <div className="flex items-center space-x-2 text-[11px] sm:text-xs text-gray-300 mt-0.5 font-medium">
-              {activeDetails?.year && (
-                <span className="flex items-center text-gray-200">
-                  <Calendar className="w-3 h-3 mr-1 text-gray-400" />
-                  {activeDetails.year}
-                </span>
-              )}
-              {activeDetails?.year && genresText && <span>•</span>}
-              {genresText && (
-                <span className="text-gray-300">{genresText}</span>
-              )}
-              <span className="text-[10px] px-1.5 py-0.2 border border-white/30 rounded text-gray-300 uppercase">
-                HD
-              </span>
-              {activeDetails?.rating && (
-                <span className="flex items-center text-yellow-400 font-bold ml-1">
-                  <Star className="w-3 h-3 fill-current mr-0.5" />
-                  {activeDetails.rating}
-                </span>
-              )}
-            </div>
-          </motion.div>
-        </AnimatePresence>
+            <button 
+              onClick={() => onInfo(activeVideo)}
+              className="flex items-center space-x-1.5 sm:space-x-2 rounded-lg bg-zinc-900/80 hover:bg-zinc-800/90 px-3.5 sm:px-5 py-2 text-white font-semibold text-xs sm:text-sm backdrop-blur-md transition-all hover:scale-105 active:scale-95 border border-white/20 shadow-lg cursor-pointer shrink-0"
+            >
+              <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-200" />
+              <span>Infos</span>
+            </button>
 
-        {/* Action Buttons */}
-        <div className="flex items-center space-x-2.5 pt-0.5">
-          <button
-            onClick={() => onPlay(activeVideo)}
-            className="flex items-center space-x-1.5 rounded-md bg-white px-4 sm:px-6 py-1.5 sm:py-2 text-black font-bold text-xs sm:text-sm transition-all hover:bg-white/85 active:scale-95 shadow-[0_8px_20px_rgba(0,0,0,0.6)] cursor-pointer"
-          >
-            <Play className="fill-current w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Abspielen</span>
-          </button>
-          <button 
-            onClick={() => onInfo(activeVideo)}
-            className="flex items-center space-x-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 px-4 sm:px-5 py-1.5 sm:py-2 text-white font-semibold text-xs sm:text-sm backdrop-blur-md transition-all active:scale-95 border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.6)] cursor-pointer"
-          >
-            <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-200" />
-            <span>Infos</span>
-          </button>
-        </div>
-
-        {/* Carousel Dot Indicators */}
-        {playlist.length > 1 && (
-          <div className="flex items-center space-x-1.5 pt-1">
-            {playlist.slice(0, 15).map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setCurrentIndex(idx)}
-                aria-label={`Gehe zu Film ${idx + 1}`}
-                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
-                  currentIndex === idx 
-                    ? 'w-5 bg-netflix-red shadow-sm' 
-                    : 'w-1.5 bg-white/30 hover:bg-white/60'
-                }`}
-              />
-            ))}
+            {/* Carousel Dot Indicators */}
+            {playlist.length > 1 && (
+              <div className="hidden md:flex items-center space-x-1.5 pl-3 border-l border-white/15">
+                {playlist.slice(0, 12).map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCurrentIndex(idx)}
+                    aria-label={`Gehe zu Film ${idx + 1}`}
+                    className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                      currentIndex === idx 
+                        ? 'w-4 bg-netflix-red shadow-sm' 
+                        : 'w-1.5 bg-white/30 hover:bg-white/60'
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Right Side: Movie Title & Metadata - Perfectly bounded & harmonious */}
+          <div className="flex flex-col items-end text-right min-w-0 max-w-[270px] sm:max-w-[340px] md:max-w-[400px] lg:max-w-[450px]">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeVideo.videoId || activeVideo.id}
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                transition={{ duration: 0.22 }}
+                className="flex flex-col items-end text-right w-full"
+              >
+                {/* Title - Refined size, balanced line wrap, never clips or collides */}
+                <h2 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black text-white tracking-tight drop-shadow-[0_3px_12px_rgba(0,0,0,1)] line-clamp-2 sm:line-clamp-3 leading-snug text-balance">
+                  {displayTitle}
+                </h2>
+
+                {/* Badges / Metadata row aligned right */}
+                <div className="flex items-center space-x-2 text-[11px] sm:text-xs text-gray-300 font-medium justify-end mt-1 sm:mt-1.5 flex-wrap gap-y-0.5 drop-shadow-md">
+                  {activeDetails?.year && (
+                    <span className="flex items-center text-gray-200">
+                      <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 text-gray-400" />
+                      {activeDetails.year}
+                    </span>
+                  )}
+                  {activeDetails?.year && genresText && <span className="text-gray-500">•</span>}
+                  {genresText && (
+                    <span className="text-gray-300 truncate max-w-[160px] sm:max-w-[240px] md:max-w-[300px]">{genresText}</span>
+                  )}
+                  <span className="text-[10px] px-1.5 py-0.2 border border-white/30 rounded text-gray-300 uppercase font-semibold">
+                    HD
+                  </span>
+                  {Boolean(typeof activeDetails?.rating === 'number' && activeDetails.rating > 0) && (
+                    <span className="flex items-center text-yellow-400 font-bold ml-0.5">
+                      <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current mr-0.5" />
+                      {activeDetails.rating}
+                    </span>
+                  )}
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </div>
       </div>
     </div>
   );

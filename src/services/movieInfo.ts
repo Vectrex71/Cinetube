@@ -1,7 +1,7 @@
 import { getDbInstance, doc, getDoc, setDoc, serverTimestamp } from "../firebase";
 import { ai } from "../lib/gemini";
 import { Type } from "@google/genai";
-import { cleanTitle } from "../lib/utils";
+import { cleanTitle, isClickbaitTitle } from "../lib/utils";
 
 export interface MovieDetails {
   videoId?: string;
@@ -35,7 +35,8 @@ export async function fetchMovieInfo(title: string, videoId?: string, forceRefre
         if (customSearchTitle) {
           finalSearchTitle = customSearchTitle;
         }
-        if (!forceRefresh && data.overview) {
+        const isStaleOrClickbait = !data.overview || data.overview === 'N/A' || isClickbaitTitle(data.title);
+        if (!forceRefresh && !isStaleOrClickbait) {
           console.log(`Using cached info for: ${title}`, data);
           return data;
         }

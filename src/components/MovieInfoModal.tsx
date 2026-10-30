@@ -3,7 +3,7 @@ import { YouTubeVideo } from '../types';
 import { X, Star, Calendar, Clock, ExternalLink, Loader2, RefreshCw, Edit2, Plus, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { fetchMovieInfo, MovieDetails } from '../services/movieInfo';
-import { cleanTitle } from '../lib/utils';
+import { cleanTitle, getValidMovieTitle, normalizeGenre, isExcludedGenre } from '../lib/utils';
 import { getDbInstance, doc, updateDoc, setDoc } from '../firebase';
 
 interface MovieInfoModalProps {
@@ -137,12 +137,12 @@ export const MovieInfoModal: React.FC<MovieInfoModalProps> = ({ video, onClose, 
                   <div className="space-y-6">
                     <div>
                       <h2 className="text-3xl font-bold text-white md:text-4xl flex flex-wrap items-center gap-2">
-                        <span>{details.title || cleanTitle(video.title)}</span>
+                        <span>{getValidMovieTitle(details.title, video.title)}</span>
                       </h2>
                       <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-gray-400">
                         <div className="flex items-center space-x-1 text-yellow-500">
                           <Star size={16} className="fill-current" />
-                          <span className="font-bold">{typeof details.rating === 'number' ? details.rating.toFixed(1) : 'N/A'}</span>
+                          <span className="font-bold">{typeof details.rating === 'number' && details.rating > 0 ? details.rating.toFixed(1) : 'N/A'}</span>
                         </div>
                         <div className="flex items-center space-x-1">
                           <Calendar size={16} />
@@ -176,37 +176,13 @@ export const MovieInfoModal: React.FC<MovieInfoModalProps> = ({ video, onClose, 
                           ))
                         ) : (
                           (() => {
-                            const excludedGenres = [
-                              'christlicher film', 'dokumentation', 'glaube', 'glauben', 
-                              'fernsehfilm', 'found footage', 'dystopie', 'information', 
-                              'kampfsport', 'privat', 'unbekannt', 'cast', 'tv-film',
-                              'anthologie'
-                            ];
-                            const mapping: Record<string, string> = {
-                              'historie': 'Historienfilm',
-                              'musical': 'Musikfilm',
-                              'music': 'Musikfilm',
-                              'musik': 'Musikfilm',
-                              'romanze': 'Romantik',
-                              'science fiction': 'Sci-Fi',
-                              'scince fiction': 'Sci-Fi',
-                              'science-fiction': 'Sci-Fi',
-                              'kom$die': 'Komödie'
-                            };
-
                             if (!Array.isArray(details.genres)) return null;
 
                             const displayedGenres = Array.from(new Set(
                               details.genres
                                 .filter(g => g && g !== 'N/A')
-                                .map(g => {
-                                  const lowerG = g.toLowerCase().trim();
-                                  return mapping[lowerG] || g;
-                                })
-                                .filter(g => {
-                                  const lowerG = g.toLowerCase().trim();
-                                  return !excludedGenres.includes(lowerG);
-                                })
+                                .map(g => normalizeGenre(g))
+                                .filter(g => !isExcludedGenre(g))
                             ));
 
                             return displayedGenres.map((genre) => (

@@ -7,7 +7,7 @@ import { PlayerModal } from './components/PlayerModal';
 import { MovieInfoModal } from './components/MovieInfoModal';
 import { LoginWall } from './components/LoginWall';
 import { Search, Bell, User, Loader2, AlertCircle, LogIn, LogOut, EyeOff, Trash2, RotateCcw, Plus, Bookmark, Info, Trophy, RefreshCw, Maximize, Minimize } from 'lucide-react';
-import { cn, cleanTitle } from './lib/utils';
+import { cn, cleanTitle, getValidMovieTitle, normalizeGenre, isExcludedGenre } from './lib/utils';
 import { getAuthInstance, getDbInstance, signIn, logOut, collection, onSnapshot, query, doc, setDoc, deleteDoc, serverTimestamp, updateDoc, orderBy, limit, getDoc, handleFirestoreError, OperationType } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { fetchMovieInfo } from './services/movieInfo';
@@ -41,6 +41,8 @@ export default function App() {
   const [allMovieDetails, setAllMovieDetails] = useState<Map<string, any>>(new Map());
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [view, setView] = useState<'home' | 'all-movies' | 'trash' | 'my-list' | 'difference'>('home');
+  const [trashTab, setTrashTab] = useState<'hidden' | 'deleted'>('hidden');
+  const [isRestoringAllBlocked, setIsRestoringAllBlocked] = useState(false);
   const [sortBy, setSortBy] = useState<'added' | 'alphabetical'>('alphabetical');
   const [recommendedVideos, setRecommendedVideos] = useState<YouTubeVideo[]>([]);
   const [recommendedIds, setRecommendedIds] = useState<Set<string>>(new Set());
@@ -110,6 +112,10 @@ export default function App() {
     return videos.filter(v => hiddenIds.has(v.videoId) && !deletedIds.has(v.videoId));
   }, [videos, hiddenIds, deletedIds]);
 
+  const blockedPlaylistVideos = useMemo(() => {
+    return videos.filter(v => deletedIds.has(v.videoId));
+  }, [videos, deletedIds]);
+
   const myListVideos = useMemo(() => {
     return videos.filter(v => myListIds.has(v.videoId) && !hiddenIds.has(v.videoId) && !deletedIds.has(v.videoId));
   }, [videos, myListIds, hiddenIds, deletedIds]);
@@ -119,16 +125,10 @@ export default function App() {
     return [...filtered].sort(() => 0.5 - Math.random());
   }, [videos, recommendedIds, hiddenIds, deletedIds]);
 
-  // Helper to obtain the best movie title: database title first, then cleaned title, then raw title
+  // Helper to obtain the best movie title: database title first (if not clickbait), then smartly cleaned title
   const getMovieTitle = (video: YouTubeVideo): string => {
     const details = allMovieDetails.get(video.videoId);
-    if (details?.title && typeof details.title === 'string') {
-      const trimmed = details.title.trim();
-      if (trimmed.length > 0 && trimmed.toLowerCase() !== 'n/a') {
-        return trimmed;
-      }
-    }
-    return cleanTitle(video.title) || video.title;
+    return getValidMovieTitle(details?.title, video.title);
   };
 
   // Helper to get a clean sort key (stripping leading non-alphanumeric chars like quotes or brackets)
@@ -149,32 +149,23 @@ export default function App() {
 
   const filteredVideos = useMemo(() => {
     const queryStr = searchQuery.trim().toLowerCase();
-    const source = view === 'trash' ? trashVideos : view === 'my-list' ? myListVideos : visibleVideos;
+    const source = view === 'trash' 
+      ? (trashTab === 'deleted' ? blockedPlaylistVideos : trashVideos)
+      : view === 'my-list' 
+        ? myListVideos 
+        : visibleVideos;
     
     let result = [...source];
 
     // Filter by genre
     if (selectedGenre) {
-      const mapping: Record<string, string> = {
-        'historie': 'Historienfilm',
-        'musical': 'Musikfilm',
-        'music': 'Musikfilm',
-        'musik': 'Musikfilm',
-        'romanze': 'Romantik',
-        'science fiction': 'Sci-Fi',
-        'scince fiction': 'Sci-Fi',
-        'science-fiction': 'Sci-Fi',
-        'kom$die': 'Komödie'
-      };
-
       result = result.filter(video => {
         const details = allMovieDetails.get(video.videoId);
         if (!details || !Array.isArray(details.genres)) return false;
         
         return details.genres.some((g: string) => {
-          const lowerG = g.toLowerCase().trim();
-          const normalized = mapping[lowerG] || g;
-          return normalized === selectedGenre;
+          if (!g || g === 'N/A') return false;
+          return normalizeGenre(g) === selectedGenre;
         });
       });
     }
@@ -195,7 +186,10 @@ export default function App() {
           if (details.customSearchTitle?.toLowerCase().includes(queryStr)) return true;
           if (details.director?.toLowerCase().includes(queryStr)) return true;
           if (details.cast?.some((c: string) => c.toLowerCase().includes(queryStr))) return true;
-          if (details.genres?.some((g: string) => g.toLowerCase().includes(queryStr))) return true;
+          if (details.genres?.some((g: string) => {
+            const norm = normalizeGenre(g).toLowerCase();
+            return norm.includes(queryStr) || g.toLowerCase().includes(queryStr);
+          })) return true;
           if (details.overview?.toLowerCase().includes(queryStr)) return true;
         }
 
@@ -336,34 +330,13 @@ export default function App() {
 
   const allGenres = useMemo(() => {
     const genres = new Set<string>();
-    const excludedGenres = [
-      'christlicher film', 'dokumentation', 'glaube', 'glauben', 
-      'fernsehfilm', 'found footage', 'dystopie', 'information', 
-      'kampfsport', 'privat', 'unbekannt', 'cast', 'tv-film',
-      'anthologie'
-    ];
-    
-    const mapping: Record<string, string> = {
-      'historie': 'Historienfilm',
-      'musical': 'Musikfilm',
-      'music': 'Musikfilm',
-      'musik': 'Musikfilm',
-      'romanze': 'Romantik',
-      'science fiction': 'Sci-Fi',
-      'scince fiction': 'Sci-Fi',
-      'science-fiction': 'Sci-Fi',
-      'kom$die': 'Komödie'
-    };
 
     allMovieDetails.forEach((details) => {
       if (Array.isArray(details.genres)) {
         details.genres.forEach((g: string) => {
           if (g && g !== 'N/A') {
-            const lowerG = g.toLowerCase().trim();
-            const normalized = mapping[lowerG] || g;
-            const lowerNormalized = normalized.toLowerCase().trim();
-            
-            if (!excludedGenres.includes(lowerNormalized)) {
+            const normalized = normalizeGenre(g);
+            if (normalized && !isExcludedGenre(normalized) && !isExcludedGenre(g)) {
               genres.add(normalized);
             }
           }
@@ -487,9 +460,33 @@ export default function App() {
     
     try {
       await deleteDoc(doc(db, 'hiddenVideos', videoId));
-      console.log("Video restored successfully");
+      await deleteDoc(doc(db, 'deletedVideos', videoId));
+      console.log("Video restored successfully from hiddenVideos and deletedVideos");
     } catch (err) {
       console.error("Error restoring video:", err);
+    }
+  };
+
+  const handleRestoreAllBlocked = async () => {
+    if (!isAdmin || !user || isRestoringAllBlocked || blockedPlaylistVideos.length === 0) return;
+    const count = blockedPlaylistVideos.length;
+    const confirmRestore = window.confirm(
+      `Möchtest du alle ${count} in der YouTube-Playlist vorhandenen Filme (u. a. "15 Killings"), die als gelöscht markiert sind, jetzt wiederherstellen?`
+    );
+    if (!confirmRestore) return;
+
+    setIsRestoringAllBlocked(true);
+    try {
+      for (const v of blockedPlaylistVideos) {
+        await deleteDoc(doc(db, 'deletedVideos', v.videoId));
+        await deleteDoc(doc(db, 'hiddenVideos', v.videoId)).catch(() => {});
+      }
+      alert(`${count} Filme erfolgreich wiederhergestellt! Sie sind jetzt wieder auf der Startseite sichtbar.`);
+    } catch (err: any) {
+      console.error("Error restoring blocked videos:", err);
+      alert("Fehler beim Wiederherstellen: " + err.message);
+    } finally {
+      setIsRestoringAllBlocked(false);
     }
   };
 
@@ -905,6 +902,35 @@ export default function App() {
             </div>
           </div>
         )}
+        {isAdmin && adminModeActive && blockedPlaylistVideos.length > 0 && view !== 'difference' && (
+          <div className="mx-4 md:mx-12 pt-20 pb-2">
+            <div className="p-3.5 bg-red-950/40 border border-red-700/50 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-red-200 text-xs sm:text-sm shadow-xl">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-base sm:text-lg">⚠️</span>
+                <div>
+                  <span className="font-bold text-white">{blockedPlaylistVideos.length} Filme aus deiner YouTube-Playlist</span>
+                  <span className="text-gray-300"> (u. a. „15 Killings“) sind in CineTube als gelöscht markiert und ausgeblendet.</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  onClick={handleRestoreAllBlocked}
+                  disabled={isRestoringAllBlocked}
+                  className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold text-xs transition-colors flex items-center space-x-1 shadow"
+                >
+                  {isRestoringAllBlocked ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                  <span>Alle wiederherstellen</span>
+                </button>
+                <button
+                  onClick={() => navigateTo('difference')}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs transition-colors"
+                >
+                  Im DB-Check ansehen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {view === 'difference' ? (
           <div className="pt-24 md:pt-32 px-4 md:px-12">
             <DifferenceView 
@@ -916,19 +942,51 @@ export default function App() {
         ) : searchQuery || selectedGenre || view === 'all-movies' || view === 'trash' || view === 'my-list' ? (
           <div className="px-4 md:px-12 pt-32 md:pt-40">
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-8 space-y-4 md:space-y-0">
-              <div className="flex items-center space-x-2 md:space-x-4">
+              <div className="flex items-center space-x-2 md:space-x-4 flex-wrap gap-2">
                 <h2 className="text-lg md:text-2xl font-semibold text-gray-200">
                   {searchQuery 
                     ? `Ergebnisse für "${searchQuery}"` 
                     : selectedGenre
                       ? `Genre: ${selectedGenre}`
                       : view === 'trash' 
-                        ? "Papierkorb (Ausgeblendete Videos)" 
+                        ? (trashTab === 'deleted' ? `Endgültig gelöschte Filme (${blockedPlaylistVideos.length})` : `Papierkorb / Ausgeblendet (${trashVideos.length})`)
                         : view === 'my-list'
                           ? "Meine Liste"
                           : "Alle Filme"}
                 </h2>
-                {view === 'trash' && trashVideos.length > 0 && isAdmin && adminModeActive && (
+                {view === 'trash' && isAdmin && adminModeActive && (
+                  <div className="flex items-center space-x-1 bg-black/50 p-1 border border-gray-800 rounded-lg">
+                    <button
+                      onClick={() => setTrashTab('hidden')}
+                      className={cn(
+                        "px-2.5 py-1 text-xs font-semibold rounded transition",
+                        trashTab === 'hidden' ? "bg-white text-black font-bold" : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      Ausgeblendet ({trashVideos.length})
+                    </button>
+                    <button
+                      onClick={() => setTrashTab('deleted')}
+                      className={cn(
+                        "px-2.5 py-1 text-xs font-semibold rounded transition",
+                        trashTab === 'deleted' ? "bg-red-600 text-white font-bold" : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      Endgültig gelöscht ({blockedPlaylistVideos.length})
+                    </button>
+                  </div>
+                )}
+                {view === 'trash' && trashTab === 'deleted' && blockedPlaylistVideos.length > 0 && isAdmin && adminModeActive && (
+                  <button
+                    onClick={handleRestoreAllBlocked}
+                    disabled={isRestoringAllBlocked}
+                    className="flex items-center space-x-1.5 rounded bg-green-600 hover:bg-green-700 px-3 py-1.5 text-xs font-bold text-white transition shadow"
+                  >
+                    {isRestoringAllBlocked ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                    <span>Alle {blockedPlaylistVideos.length} wiederherstellen</span>
+                  </button>
+                )}
+                {view === 'trash' && trashTab === 'hidden' && trashVideos.length > 0 && isAdmin && adminModeActive && (
                   <button
                     onClick={handleEmptyTrash}
                     className="flex items-center space-x-1 rounded bg-red-600/20 px-3 py-1 text-xs font-bold text-red-500 transition hover:bg-red-600 hover:text-white"
@@ -1049,16 +1107,18 @@ export default function App() {
                                 >
                                   <RotateCcw size={14} className="sm:w-4 sm:h-4" />
                                 </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeletePermanently(video.videoId);
-                                  }}
-                                  className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-red-600 text-white shadow-lg transition duration-200 hover:bg-red-700 hover:scale-110"
-                                  title="Endgültig löschen"
-                                >
-                                  <Trash2 size={14} className="sm:w-4 sm:h-4" />
-                                </button>
+                                {trashTab === 'hidden' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeletePermanently(video.videoId);
+                                    }}
+                                    className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-red-600 text-white shadow-lg transition duration-200 hover:bg-red-700 hover:scale-110"
+                                    title="Endgültig löschen"
+                                  >
+                                    <Trash2 size={14} className="sm:w-4 sm:h-4" />
+                                  </button>
+                                )}
                               </div>
                             ) : (
                               <div className="flex space-x-1.5 sm:space-x-2">
@@ -1099,7 +1159,7 @@ export default function App() {
                 {view === 'trash' ? (
                   <>
                     <Trash2 size={48} className="mb-4 opacity-20" />
-                    <p>Der Papierkorb ist leer.</p>
+                    <p>{trashTab === 'deleted' ? 'Keine endgültig gelöschten Filme in der Playlist.' : 'Der Papierkorb ist leer.'}</p>
                   </>
                 ) : view === 'my-list' ? (
                   <>
